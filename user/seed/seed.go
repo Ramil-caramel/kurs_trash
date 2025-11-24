@@ -10,8 +10,9 @@ import (
 	"io"
 	"log"
 	"net"
-	"testfile/netapi"
+	"user/netapi"
 	"time"
+	"user/core/filehandler"
 )
 
 func SeedServer(pullTask []string) {
@@ -98,3 +99,16 @@ func handleConn(conn net.Conn) {
 	}
 
 }
+
+func GetPieceHandler(jsonData []byte) (interface{}, error){
+	var get GetPiece
+	err := json.Unmarshal(jsonData, &get)
+	if err != nil {
+		// TODO
+		return "", err
+	}
+
+	              
+
+	return ,nil
+} ф 

@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
-	"testfile/core/coretype"
+
+    
+	"user/core/coretype"
+	"user/logger"
 )
 
 // Структура для формирования JSON, то есть .mytorrent
@@ -32,11 +35,20 @@ type MetaGenerator struct {
 }
 
 func (metaGenerator *MetaGenerator) GenerateMyTorrent(filePath string, pieceSize int, trackerIP string) (error){
+
+    logger.Infof("start meta.MetaGenerator.GenerateMyTorrenterr(%v,%d,%v)", filePath, pieceSize , trackerIP)
+
     pieces, err := metaGenerator.Hasher.HashFile(filePath, pieceSize)
     if err != nil {
+        logger.Errorf("meta.MetaGenerator.GenerateMyTorrenterr()have err = %v", err)
         return err
     }
-    fileInfo, _ := os.Stat(filePath)
+
+    fileInfo, err := os.Stat(filePath)
+    if err != nil {
+        logger.Errorf("meta.MetaGenerator.GenerateMyTorrenterr()have err = %v", err)
+        return err
+    }
 
     meta := TorrentMeta{
         FileName:  fileInfo.Name(),
@@ -48,11 +60,13 @@ func (metaGenerator *MetaGenerator) GenerateMyTorrent(filePath string, pieceSize
 
     data,err := json.MarshalIndent(meta, "", "  ")
     if err != nil {
+        logger.Errorf("meta.MetaGenerator.GenerateMyTorrenterr()have err = %v", err)
         return err
     }
-    err = os.WriteFile(fileInfo.Name() + ".mytorrent", data, 0644)
     
+    err = os.WriteFile(fileInfo.Name() + ".mytorrent", data, 0644)
     if err != nil {
+        logger.Errorf("meta.MetaGenerator.GenerateMyTorrenterr()have err = %v", err)
         return err
     }
 
@@ -60,6 +74,8 @@ func (metaGenerator *MetaGenerator) GenerateMyTorrent(filePath string, pieceSize
 }
 
 func ConvertPiecesToBase64(pieces []coretype.Piece) ([]string){
+
+    logger.Info("start meta.ConvertPiecesToBase64(...)")
 
     if len(pieces) == 0 {
         return nil

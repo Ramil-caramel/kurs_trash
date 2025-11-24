@@ -9,9 +9,9 @@ import (
 	"math"
 	"os"
 
-	"testfile/core/filehandler"
-	"testfile/core/filehasher"
-	"testfile/core/meta"
+	"user/core/filehandler"
+	"user/core/filehasher"
+	"user/core/meta"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 		Hasher: &filehasher.FileHasher{},
 	}
 
-	jsonGenerator.GenerateMyTorrent(filepath, 128*1024, "0.0.192.192::8080")
+	jsonGenerator.GenerateMyTorrent(filepath, 128*1024, "0.0")
 
 	/*
 	data1,_ := filehandler.GetPiece(filepath, 12, 128*1024)

@@ -1,21 +1,22 @@
 package filehasher
 
 // Пакет для хеширования данных
+// хеширование происходит паралельно 
 
 import (
 	"crypto/sha1"
-	//"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"runtime"
 	"sync"
-    "testfile/core/coretype"
+    "user/core/coretype"
+
+    "user/logger"
 )
 
 
-
+// струтура для формирования канала задач 
 type chunkJob struct{
     Index  int
     Offset int64
@@ -23,21 +24,22 @@ type chunkJob struct{
 }
 
 
-
+// структура у которой есть метод хеширования
+// так как уровень логики независим от реализации 
+// нам необходима струтура которая будет соответсвовать описываемой в meta интерфейсу
 type FileHasher struct {
 
 }
 
 
-
+// функция реализцкт хеширование файла и возвращает []coretype.Piece
 func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]coretype.Piece, error) {
+
+    logger.Infof("start filehasher.HashFile(%s, %d)", filePath, pieceSize)
+
     file, err := os.Open(filePath)
     if err != nil{
-        log.Println("Can`t open file")
-        //log.SetOutput(file)
-        //file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-        // TODO
-        // НЕОБХОДИМО ПРОВЕРКИ НА ОШИБКИ И ЛОГИРОВАНИЕ ДОПИСАТЬ ПОЗЖЕ
+        logger.Errorf("filehasher.HashFile(...) have err = %v", err)
         return nil, err
 
     }
@@ -46,11 +48,7 @@ func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]corety
 
     stat,err := file.Stat()
     if err != nil{
-        log.Println("Can`t take file.Stat()")
-        //log.SetOutput(file)
-        //file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-        // НЕОБХОДИМО ПРОВЕРКИ НА ОШИБКИ И ЛОГИРОВАНИЕ ДОПИСАТЬ ПОЗЖЕ
+        logger.Errorf("filehasher.HashFile(...) have err = %v", err)
         return nil, err
     }
     fileSize := stat.Size()
@@ -59,7 +57,7 @@ func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]corety
     countPieces := int(math.Ceil(float64(fileSize) / float64(pieceSize)))
     workers := runtime.NumCPU()
 
-    jobs := make(chan chunkJob, runtime.NumCPU()*2)    // Буферизованный канал
+    jobs := make(chan chunkJob, workers*2)    // Буферизованный канал
     results := make(chan coretype.Piece, countPieces)
     errors := make(chan error, 1) // канал буферезированный ровно на одну ошибку
 
@@ -85,11 +83,7 @@ func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]corety
             select{
             case jobs <- job:
             case err := <-errors:
-                log.Println("error in gorutine with hash piece", err)
-                //log.SetOutput(file)
-                //file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-                // НЕОБХОДИМО ПРОВЕРКИ НА ОШИБКИ И ЛОГИРОВАНИЕ ДОПИСАТЬ ПОЗЖЕ
+                logger.Errorf("filehasher.HashFile(...) Jobs have err = %v", err)
                 return
 
             }
@@ -106,12 +100,12 @@ func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]corety
     pieces := make([]coretype.Piece, countPieces)
     for piece := range results {
         pieces[piece.Index] = piece
-        //log.Printf("Обработан чанк %d/%d, значение %v", piece.Index+1, countPieces, piece.Hash)
     }
 
     // Проверяем были ли ошибки в воркерах
     select {
     case err := <- errors:
+        logger.Errorf("filehasher.HashFile(...) worker have err = %v", err)
         return nil, err
     default:
         return pieces, nil
@@ -119,8 +113,11 @@ func (filehasher *FileHasher) HashFile(filePath string, pieceSize int) ([]corety
 }
 
 
-
+// worker для обработки задач из канала задач
 func worker(file *os.File, jobs <-chan chunkJob, results chan<- coretype.Piece, errors chan<- error, wg *sync.WaitGroup){
+
+    logger.Infof("start filehasher.worker(...)")
+
     defer wg.Done()
 
     for job := range jobs{
