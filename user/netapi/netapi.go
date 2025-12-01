@@ -4,24 +4,25 @@ import (
 	"encoding/json"
 	"errors"
 
+	
 	"user/logger"
 )
 
-var UnExistHandler = errors.New("Handlr not exist")
-var UnExistCmd = errors.New("Command not not exist")
+var ErrUnExistHandler = errors.New("Handlr not exist")
+var ErrUnExistCmd = errors.New("Command not not exist")
 
 type BaseRequestStruct struct {
 	Command string `json:"command"`
 }
 
-type GetPiece struct {
+type GetPieceStruct struct {
 	Command string `json:"command"`
 
 	FileName   string `json:"file_name"`
 	PieceIndex int    `json:"piece_index"`
 }
 
-type PostPiece struct {
+type PostPieceStruct struct {
 	Command string `json:"command"`
 
 	FileName string `json:"file_name"`
@@ -29,18 +30,51 @@ type PostPiece struct {
 	Data []byte `json:"data"`
 }
 
-type Error struct {
+type ErrorRequestStruct struct {
 	Command string `json:"command"`
 	Error   string `json:"error"`
 }
 
-type HndShake struct {
+type HandShakeStruct struct {
 	Command string `json:"command"`
-
 	FileName string `json:"file_name"`
-	//mu       sync.RWMutex // для потокобезопасности
-	//PieceIndex int       `json:"piece_index"`
-	BitMap int `json:"data"`
+	BitMap   string `json:"bitmap"`
+}
+
+
+func CreateGetMessage(fileName string, pieceIndex int) (*GetPieceStruct){
+	cmd := "GET"
+	return &GetPieceStruct{
+		Command: cmd,
+		FileName: fileName,
+		PieceIndex: pieceIndex,
+	}
+}
+
+func CreateErrorMessage(eRror string) (*ErrorRequestStruct){
+	cmd := "ERR"
+	return &ErrorRequestStruct{
+		Command: cmd,
+		Error: eRror,
+	}
+}
+
+func CreateHandShakeMessage(fileName string, bitMap string ) (*HandShakeStruct){	
+	cmd := "HSH"
+	return &HandShakeStruct{
+		Command: cmd,
+		FileName: fileName,
+
+	}
+}
+
+func CreatePostPieceMessage(fileName string, data []byte) (*PostPieceStruct){
+	cmd := "POST"
+	return &PostPieceStruct{
+		Command: cmd,
+		FileName: fileName,
+		Data: data,
+	}
 }
 
 func ParsCommandRequest(jsonData []byte) (string, error) {
@@ -48,7 +82,7 @@ func ParsCommandRequest(jsonData []byte) (string, error) {
 	err := json.Unmarshal(jsonData, &base)
 
 	if err != nil {
-		// TODO
+		logger.Errorf("netapi.ParsCommandRequest(...) have err = %v", err)
 		return "", err
 	}
 
@@ -83,18 +117,19 @@ func (d *Dispatcher) Register(command string, handler Handler) {
 // функция для обработки полученной последовательнсти байт и вызова хендлеров относительно запроса
 func (d *Dispatcher) Handle(jsonData []byte) (interface{}, error) {
 
+	logger.Info("start netapi.Dispatcher.Handle(...)")
+
 	cmd,err := ParsCommandRequest(jsonData)
 	if err != nil{
-		//TODO
-		log.Println(err)
+		logger.Errorf("netapi.Dispatcher.Handle(...) have err = %v", err)
 		return "", err
 	}
 
 	handler, exists := d.handlers[cmd]
 
 	if !exists {
-		// TODO
-		return "", UnExistHandler
+		logger.Errorf("netapi.Dispatcher.Handle(...) have err = %v", ErrUnExistHandler)
+		return "", ErrUnExistHandler
 	}
 
 	return handler(jsonData)

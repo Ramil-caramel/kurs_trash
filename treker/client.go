@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-        	conn, err := net.Dial("tcp4", "10.228.203.57:3000")
+        conn, err := net.Dial("tcp4", "10.228.203.57:3000")
 	time.Sleep(7000)
 	if err != nil {
 		log.Fatal("Dial error:", err)
