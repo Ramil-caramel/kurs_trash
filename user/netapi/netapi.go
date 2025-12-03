@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	
 	"user/logger"
 )
 
@@ -17,16 +16,13 @@ type BaseRequestStruct struct {
 
 type GetPieceStruct struct {
 	Command string `json:"command"`
-
 	FileName   string `json:"file_name"`
 	PieceIndex int    `json:"piece_index"`
 }
 
 type PostPieceStruct struct {
 	Command string `json:"command"`
-
 	FileName string `json:"file_name"`
-	//PieceIndex int       `json:"piece_index"`
 	Data []byte `json:"data"`
 }
 
@@ -41,6 +37,29 @@ type HandShakeStruct struct {
 	BitMap   string `json:"bitmap"`
 }
 
+type GetPeersStruct struct {
+	Command  string `json:"command"`
+	FileName string `json:"file_name"`
+}
+
+
+// И парсер для ответа от трекера
+type PeersResponseStruct struct {
+	Command string   `json:"command"`
+	Peers   []string `json:"peers"`
+}
+
+type ErrorResponseStruct struct {
+	Command string `json:"command"`
+	Error   string `json:"error"`
+}
+
+func CreateGetPeersMessage(fileName string) *GetPeersStruct {
+	return &GetPeersStruct{
+		Command:  "PEERS",
+		FileName: fileName,
+	}
+}
 
 func CreateGetMessage(fileName string, pieceIndex int) (*GetPieceStruct){
 	cmd := "GET"
@@ -68,6 +87,7 @@ func CreateHandShakeMessage(fileName string, bitMap string ) (*HandShakeStruct){
 	}
 }
 
+
 func CreatePostPieceMessage(fileName string, data []byte) (*PostPieceStruct){
 	cmd := "POST"
 	return &PostPieceStruct{
@@ -76,6 +96,7 @@ func CreatePostPieceMessage(fileName string, data []byte) (*PostPieceStruct){
 		Data: data,
 	}
 }
+
 
 func ParsCommandRequest(jsonData []byte) (string, error) {
 	var base BaseRequestStruct

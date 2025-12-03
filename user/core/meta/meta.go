@@ -34,6 +34,7 @@ type MetaGenerator struct {
     Hasher Hasher
 }
 
+// Создает мета файл на основе переданного файла а также размера куска и IP трекера
 func (metaGenerator *MetaGenerator) GenerateMyTorrent(filePath string, pieceSize int, trackerIP string) (error){
 
     logger.Infof("start meta.MetaGenerator.GenerateMyTorrenterr(%v,%d,%v)", filePath, pieceSize , trackerIP)

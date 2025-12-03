@@ -24,7 +24,7 @@ var ErrUnFoundRecord = errors.New("record not found")
 //var ErrUnEqualPieceAndLen = errors.New("not equal piece len and data len") лишний
 
 
-// Функция для аллоцирования пустого файла заданного размера
+// Функция для аллоцирования пустого файла заданного размера в месте работы программы
 func CreateFile(name string, size int64) error {
 
 	logger.Infof("start filehandler.CreateFile(%v,...)", name)
@@ -143,8 +143,8 @@ func PutPiece(name string, data []byte, pieceIndex int64, pieceSize int64) (erro
 
 const PublicHouseFile = "PublicHouse.txt"
 
-//структура для управления PublicHouse
-// то есть файлом с битовыми картами данных которые у нас есть
+// Структура расчитана на работу с полными путсми к раздающимся файлам
+// Структура для управления PublicHouse, то есть файлом с битовыми картами данных которые у нас есть
 type PublicHouse struct{
     mu sync.RWMutex
 }
@@ -331,16 +331,16 @@ func (ph *PublicHouse) SetPiece(fileName string, index int) error {
     newBitmap := []byte(bitmap)
     newBitmap[index] = '1'
 
-    return ph.updateRecord(fileName, string(newBitmap))
+    return ph.UpdateRecord(fileName, string(newBitmap))
 }
 
 
 // меняет битовую карту на заданную
-func (ph *PublicHouse) updateRecord(fileName, newBitmap string) error {
+func (ph *PublicHouse) UpdateRecord(fileName, newBitmap string) error {
 
     logger.Infof("start filehandler.PublicHouse.updateRecord(%v,%v)", fileName, newBitmap)
 
-    file, err := os.OpenFile(PublicHouseFile, os.O_RDWR, 0644)
+    file, err := os.OpenFile(PublicHouseFile, os.O_CREATE|os.O_RDWR, 0644)
     if err != nil {
         logger.Errorf("filehandler.PublicHouse.updateRecord(...) have err = %v", err)
         return err

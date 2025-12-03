@@ -15,14 +15,13 @@ import (
 )
 
 // Параметр: размер куска (можно изменить под ваши настройки)
-const PieceSize int64 = 1 << 16 // 65536, изменить при необходимости
+const PieceSize int64 = 128 * 1024 // 65536, изменить при необходимости
 
 // Экземпляр PublicHouse (владеет mutex)
 var ph = &filehandler.PublicHouse{}
 
 // SeedServer запускает TCP-сервер и принимает соединения.
-// pullTask оставлен по сигнатуре (можно использовать для ограничений/фильтрации)
-func SeedServer(pullTask []string) {
+func SeedServer() {
 	ln, err := net.Listen("tcp4", "0.0.0.0:3000")
 	if err != nil {
 		// не логируем тут — оставляем логирование пользователю
@@ -112,7 +111,7 @@ func sendErrorResponse(conn net.Conn, errMsg string) {
 	sendResponse(conn, msg)
 }
 
-// ------------------- Хендлеры для Dispatcher -------------------
+// Хендлеры для Dispatcher
 
 // GetPieceHandler — обрабатывает GET-запрос.
 // Ожидает netapi.GetPieceStruct в jsonData.
@@ -154,7 +153,6 @@ func HandshakeHandler(jsonData []byte) (interface{}, error) {
 		return netapi.CreateErrorMessage(err.Error()), nil
 	}
 
-	// Получаем битмап из PublicHouse
 	bitmap, err := ph.GetBitmap(req.FileName)
 	if err != nil {
 		// если записи нет или ошибка — возвращаем сообщение об ошибке
