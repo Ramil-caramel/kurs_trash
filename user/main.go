@@ -1,19 +1,22 @@
 package main
 
 import (
-	//"time"
-	//"os"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"os"
+
+	//"fmt"
 
 	"io"
 	"net"
 	"user/netapi"
 
-	//"crypto/sha1"
+	"crypto/md5"
+	"path/filepath"
 
 	//"user/core/filehandler"
+	"user/core/filehandler"
 	"user/core/filehasher"
 	"user/core/meta"
 	//"user/seed"
@@ -23,25 +26,45 @@ import (
 func main() {
 
 	filePath := "/home/rama/Загрузки/avidreaders.ru__oblomov.txt"
-	//fileName := "avidreaders.ru__oblomov.txt.mytorrent"
+	fileName := filepath.Base(filePath)
 	pieceSize := 128 * 1024
 	trackerIP := "10.249.85.57"
 
-	//ph := &filehandler.PublicHouse{}
 	
 	metaGen := &meta.MetaGenerator{Hasher: &filehasher.FileHasher{}}
 	err := metaGen.GenerateMyTorrent(filePath, pieceSize, trackerIP)
 	if err != nil {
 		return 
 	}
+	
+
+
+/*
+
+	//ph := &filehandler.PublicHouse{}
 	//a,_ := GetPeers(fileName, "0.0.0.0")
 
-	//pb :=&filehandler.PublicHouse{} 
-	//pb.NewData(filePath, 128*1024)
-	//seed.SeedServer() // у нас есть путь файл
-	_,post := DownloadPiece(filePath, "127.0.0.1", 0) // мы знаем только имя файла но не его путь
-	a :=string(post.Data)
-	fmt.Println(a)
+	pb :=&filehandler.PublicHouse{} 
+	pb.NewSeed(filePath, 128*1024)
+	seed.SeedServer() // у нас есть путь файл
+*/
+	filehandler.CreateFile(fileName, 1673619)
+	for i := 0; i < 13; i++{
+		_,post := DownloadPiece(fileName, "127.0.0.1", i) // мы знаем только имя файла но не его путь
+		//fmt.Println(string(post.Data))
+		filehandler.PutPiece(fileName, post.Data,int64(i), 128*1024)
+		
+	}
+	
+	data1, _ := os.ReadFile(filePath)
+	data2, _ := os.ReadFile(fileName)
+	
+
+	if md5.Sum(data1) == md5.Sum(data2) {
+		fmt.Println("✅ Файлы одинаковые")
+	} else {
+		fmt.Println("❌ Файлы разные")
+	}
 
 }	
 

@@ -9,22 +9,26 @@ import (
 	"io"
 	"net"
 	"time"
+	"user/logger"
 
 	"user/core/filehandler"
 	"user/netapi"
 )
 
-// Параметр: размер куска (можно изменить под ваши настройки)
+// Параметр: размер куска
 const PieceSize int64 = 128 * 1024 // 65536, изменить при необходимости
 
-// Экземпляр PublicHouse (владеет mutex)
+// Экземпляр PublicHouse (владеет mutex) для работы со списоком раздач
 var ph = &filehandler.PublicHouse{}
 
 // SeedServer запускает TCP-сервер и принимает соединения.
 func SeedServer() {
+
+	logger.Info("start seed.SeedServer()")
+
 	ln, err := net.Listen("tcp4", "0.0.0.0:3000")
 	if err != nil {
-		// не логируем тут — оставляем логирование пользователю
+		logger.Errorf("seed.SeedServer() have err = %v", err)
 		return
 	}
 	defer ln.Close()
@@ -38,15 +42,19 @@ func SeedServer() {
 		conn, err := ln.Accept()
 		if err != nil {
 			// пропускаем соединения с ошибками
+			logger.Errorf("seed.SeedServer() have err = %v", err)
 			continue
 		}
 		go handleConn(conn, dispatcher)
 	}
 }
 
-// handleConn читает один запрос, вызывает диспетчер и отправляет ответ.
-// В текущей реализации 1 запрос -> 1 ответ -> закрытие соединения.
+// handleConn читает один запрос, вызывает диспетчер и отправляет ответ
+//1 запрос -> 1 ответ -> закрытие соединения
 func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
+
+	logger.Infof("start seed.handleConn(%s)", conn.RemoteAddr().String())
+
 	defer conn.Close()
 
 	// читаем длину (4 байта)
@@ -54,6 +62,7 @@ func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
 	lengthBuf := make([]byte, 4)
 	_, err := io.ReadFull(conn, lengthBuf)
 	if err != nil {
+		logger.Errorf("seed.handleConn(%s) have err = %v", conn.RemoteAddr().String(), err)
 		return
 	}
 	length := binary.BigEndian.Uint32(lengthBuf)
@@ -63,13 +72,14 @@ func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
 	data := make([]byte, length)
 	_, err = io.ReadFull(conn, data)
 	if err != nil {
+		logger.Errorf("seed.handleConn(%s) have err = %v", conn.RemoteAddr().String(), err)
 		return
 	}
 
 	// вызываем диспетчер для обработки
 	resp, err := dispatcher.Handle(data)
 	if err != nil {
-		// при ошибке формируем ответ-ошибку и отправляем
+		logger.Errorf("seed.handleConn(%s) have err = %v", conn.RemoteAddr().String(), err)
 		sendErrorResponse(conn, err.Error())
 		return
 	}
@@ -85,9 +95,11 @@ func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
 
 // sendResponse маршалит объект в JSON и шлёт его с 4-байтовой длиной (big-endian)
 func sendResponse(conn net.Conn, resp interface{}) {
+
+	logger.Infof("start seed.sendResponse(%s)", conn.RemoteAddr().String())
+
 	payload, err := json.Marshal(resp)
 	if err != nil {
-		// не логируем, просто закрываем
 		return
 	}
 
@@ -97,7 +109,7 @@ func sendResponse(conn net.Conn, resp interface{}) {
 	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, uint32(len(payload)))
 
-	// запишем длину, затем payload
+	
 	_, err = conn.Write(lenBuf)
 	if err != nil {
 		return
@@ -134,7 +146,11 @@ func GetPieceHandler(jsonData []byte) (interface{}, error) {
 	}
 
 	// Берём кусок из файловой системы
-	data, err := filehandler.GetPiece(req.FileName, int64(req.PieceIndex), PieceSize)
+	fulName,err := ph.GetFullPathByName(req.FileName)
+	if err != nil{
+		return netapi.CreateErrorMessage(err.Error()), nil
+	}
+	data, err := filehandler.GetPiece(fulName, int64(req.PieceIndex), PieceSize)
 	if err != nil {
 		return netapi.CreateErrorMessage(err.Error()), nil
 	}

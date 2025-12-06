@@ -13,7 +13,7 @@ import (
     "bufio"
     "strings"
     "fmt"
-
+    "path/filepath"
 
 	"user/logger"
 )
@@ -143,40 +143,44 @@ func PutPiece(name string, data []byte, pieceIndex int64, pieceSize int64) (erro
 
 const PublicHouseFile = "PublicHouse.txt"
 
-// Структура расчитана на работу с полными путсми к раздающимся файлам
-// Структура для управления PublicHouse, то есть файлом с битовыми картами данных которые у нас есть
+// Структура расчитана на работу и управлением файла содержащего список раздач и скаченных файлов 
+// файл содеражит наборы <full_path>|<file_name>|<bitmap>
 type PublicHouse struct{
     mu sync.RWMutex
 }
 
 // функция в файл содеражащий всесь список наших раздач 
 // добавляет новую раздачу то есть набор data.txt 111111
-func (ph *PublicHouse) NewData(fileName string, pieceSize int64) error {
+func (ph *PublicHouse) NewSeed(fullPath string, pieceSize int64) error {
 
-    logger.Infof("start filehandler.PublicHouse.NewData(%v,...)", fileName)
+    logger.Infof("start filehandler.PublicHouse.NewSeed(%v,...)", fullPath)
 
     ph.mu.Lock()
     defer ph.mu.Unlock()
 
+    stat, err := os.Stat(fullPath)
+    if err != nil {
+        logger.Errorf("filehandler.PublicHouse.NewSeed(...) have err = %v", err)
+        return err
+    }
+
+    fileName := filepath.Base(fullPath)
+    fileSize := stat.Size()
+    // считаем размер конкретного торрента
+    countPiece := int(math.Ceil(float64(fileSize) / float64(pieceSize)))
+    //fmt.Println(countPiece, fileSize, pieceSize,math.Ceil(float64(fileSize) / float64(pieceSize)))
+    bitmap := strings.Repeat("1", countPiece)
+
+    newLine := encodeRecord(fullPath, fileName, bitmap)
+
     // открываем единый файл
     file, err := os.OpenFile(PublicHouseFile, os.O_RDWR|os.O_CREATE, 0644)
     if err != nil {
-        logger.Errorf("ilehandler.PublicHouse.NewData(...) have err = %v", err)
+        logger.Errorf("filehandler.PublicHouse.NewSeed(...) have err = %v", err)
         return err
     }
     defer file.Close()
 
-    // считаем размер конкретного торрента
-    stat, err := os.Stat(fileName)
-    if err != nil {
-        logger.Errorf("ilehandler.PublicHouse.NewData(...) have err = %v", err)
-        return err
-    }
-
-    fileSize := stat.Size()
-    countPiece := int(math.Ceil(float64(fileSize) / float64(pieceSize)))
-    bitMap := strings.Repeat("1", countPiece)
-    newLine := fmt.Sprintf("%s %s\n", fileName, bitMap)
 
     // читаем весь файл в память
     scanner := bufio.NewScanner(file)
@@ -185,9 +189,8 @@ func (ph *PublicHouse) NewData(fileName string, pieceSize int64) error {
 
     for scanner.Scan() {
         line := scanner.Text()
-
-        if strings.HasPrefix(line, fileName+" ") {
-            // обновляем строку
+        p, n, _, err := decodeRecord(line)
+        if err == nil && (p == fullPath || n == fileName) {
             lines = append(lines, newLine)
             found = true
         } else {
@@ -196,7 +199,7 @@ func (ph *PublicHouse) NewData(fileName string, pieceSize int64) error {
     }
 
     if err := scanner.Err(); err != nil {
-        logger.Errorf("ilehandler.PublicHouse.NewData(...) have err = %v", err)
+        logger.Errorf("filehandler.PublicHouse.NewSeed(...) have err = %v", err)
         return err
     }
 
@@ -208,17 +211,17 @@ func (ph *PublicHouse) NewData(fileName string, pieceSize int64) error {
     // перезаписываем файл
     err = os.WriteFile(PublicHouseFile, []byte(strings.Join(lines, "")), 0644)
     if err != nil {
-        logger.Errorf("ilehandler.PublicHouse.NewData(...) have err = %v", err)
+        logger.Errorf("filehandler.PublicHouse.NewSeed(...) have err = %v", err)
         return err
     }
 
     return nil
 }
 
-// Возвращает BitMap 
-func (ph *PublicHouse) GetBitmap(fileName string) (string, error) {
+// Возвращает BitMap по любому из полей буть то абсолютный путь или название файла
+func (ph *PublicHouse) GetBitmap(fileId string) (string, error) {
 
-    logger.Infof("start filehandler.PublicHouse.GetBitmap(%v,...)", fileName)
+    logger.Infof("start filehandler.PublicHouse.GetBitmap(%v,...)", fileId)
 
     file, err := os.Open(PublicHouseFile)
     if err != nil {
@@ -228,14 +231,15 @@ func (ph *PublicHouse) GetBitmap(fileName string) (string, error) {
     defer file.Close()
 
     scanner := bufio.NewScanner(file)
-    prefix := fileName + " "
 
     for scanner.Scan() {
         line := scanner.Text()
-        if strings.HasPrefix(line, prefix) {
-            // разделяем по пробелу
-            tail := strings.TrimSpace(line[len(prefix):])
-            return tail, nil
+        p, n, b, err := decodeRecord(line)
+        if err != nil {
+            continue
+        }
+        if fileId == p || fileId == n {
+            return b, nil
         }
     }
 
@@ -251,25 +255,30 @@ func (ph *PublicHouse) GetBitmap(fileName string) (string, error) {
 
 
 // HasRecord — проверяет, существует ли запись в файле 
-func (ph *PublicHouse) HasRecord(fileName string) (bool, error) {
+func (ph *PublicHouse) HasRecord(fileId string) (bool, error) {
 
-    logger.Infof("start filehandler.PublicHouse.HasRecord(%v,...)", fileName)
+    logger.Infof("start filehandler.PublicHouse.HasRecord(%v,...)", fileId)
 
     file, err := os.Open(PublicHouseFile)
     if err != nil {
         if os.IsNotExist(err) {
-            return false, nil
+            logger.Errorf("filehandler.PublicHouse.HasRecord(...) have err = %v", err)
+            return false, err
         }
         logger.Errorf("filehandler.PublicHouse.HasRecord(...) have err = %v", err)
         return false, err
     }
     defer file.Close()
 
-    prefix := fileName + " "
     scanner := bufio.NewScanner(file)
 
     for scanner.Scan() {
-        if strings.HasPrefix(scanner.Text(), prefix) {
+        line := scanner.Text()
+        p, n, _, err := decodeRecord(line)
+        if err != nil {
+            continue
+        }
+        if fileId == p || fileId == n {
             return true, nil
         }
     }
@@ -286,11 +295,11 @@ func (ph *PublicHouse) HasRecord(fileName string) (bool, error) {
 
 
 // HasPiece — проверяет, существует ли кусок index у файла (бит = '1')
-func (ph *PublicHouse) HasPiece(fileName string, index int) (bool, error) {
+func (ph *PublicHouse) HasPiece(fileId string, index int) (bool, error) {
 
-    logger.Infof("start filehandler.PublicHouse.HasPiece(%v,%d)", fileName, index)
+    logger.Infof("start filehandler.PublicHouse.HasPiece(%v,%d)", fileId, index)
 
-    bitmap, err := ph.GetBitmap(fileName)
+    bitmap, err := ph.GetBitmap(fileId)
     if err != nil {
         logger.Errorf("filehandler.PublicHouse.HasPiece(...) have err = %v", err)
         return false, err
@@ -306,13 +315,13 @@ func (ph *PublicHouse) HasPiece(fileName string, index int) (bool, error) {
 }
 
 // устанавливает 1 на место скачанного куска 
-func (ph *PublicHouse) SetPiece(fileName string, index int) error {
+func (ph *PublicHouse) SetPiece(fileId string, index int) error {
     ph.mu.Lock()
     defer ph.mu.Unlock()
 
-    logger.Infof("start filehandler.PublicHouse.SetPiece(%v,%d)", fileName, index)
+    logger.Infof("start filehandler.PublicHouse.SetPiece(%v,%d)", fileId, index)
 
-    bitmap, err := ph.GetBitmap(fileName)
+    bitmap, err := ph.GetBitmap(fileId)
     if err != nil {
         logger.Errorf("filehandler.PublicHouse.SetPiece(...) have err = %v", err)
     }
@@ -331,14 +340,17 @@ func (ph *PublicHouse) SetPiece(fileName string, index int) error {
     newBitmap := []byte(bitmap)
     newBitmap[index] = '1'
 
-    return ph.UpdateRecord(fileName, string(newBitmap))
+    return ph.UpdateRecord(fileId, string(newBitmap))
 }
 
 
-// меняет битовую карту на заданную
-func (ph *PublicHouse) UpdateRecord(fileName, newBitmap string) error {
+// меняет битовую карту на заданную, при условии что запись существует
+func (ph *PublicHouse) UpdateRecord(fileId, newBitmap string) error {
 
-    logger.Infof("start filehandler.PublicHouse.updateRecord(%v,%v)", fileName, newBitmap)
+    logger.Infof("start filehandler.PublicHouse.updateRecord(%v,%v)", fileId, newBitmap)
+
+    ph.mu.Lock()
+    defer ph.mu.Unlock()
 
     file, err := os.OpenFile(PublicHouseFile, os.O_CREATE|os.O_RDWR, 0644)
     if err != nil {
@@ -349,14 +361,13 @@ func (ph *PublicHouse) UpdateRecord(fileName, newBitmap string) error {
 
     scanner := bufio.NewScanner(file)
     var lines []string
-    prefix := fileName + " "
     updated := false
 
     for scanner.Scan() {
         line := scanner.Text()
-
-        if strings.HasPrefix(line, prefix) {
-            lines = append(lines, fmt.Sprintf("%s %s\n", fileName, newBitmap))
+        p, n, _, err := decodeRecord(line)
+        if err == nil && (fileId == p || fileId == n) {
+            lines = append(lines, encodeRecord(p, n, newBitmap))
             updated = true
         } else {
             lines = append(lines, line+"\n")
@@ -375,4 +386,51 @@ func (ph *PublicHouse) UpdateRecord(fileName, newBitmap string) error {
 
 
     return os.WriteFile(PublicHouseFile, []byte(strings.Join(lines, "")), 0644)
+}
+
+func (ph *PublicHouse) GetFullPathByName(fileName string) (string, error) {
+
+    logger.Infof("start filehandler.PublicHouse.GetFullPathByName(%s)", fileName)
+
+    file, err := os.Open(PublicHouseFile)
+    if err != nil {
+        logger.Errorf("filehandler.PublicHouse.GetFullPathByName(...) have err = %v", err)
+        return "", err
+    }
+    defer file.Close()
+
+    scanner := bufio.NewScanner(file)
+
+    for scanner.Scan() {
+        line := scanner.Text()
+        full, name, _, err := decodeRecord(line)
+        if err != nil {
+            continue // пропускаем битые строки
+        }
+
+        if name == fileName {
+            return full, nil
+        }
+    }
+
+    if err := scanner.Err(); err != nil {
+        logger.Errorf("filehandler.PublicHouse.GetFullPathByName(...) have err = %v", err)
+        return "", err
+    }
+
+    return "", ErrUnFoundRecord
+}
+
+// Формирует строку для запси формата <full_path>|<file_name>|<bitmap>
+func encodeRecord(path, name, bitmap string) string {
+    return fmt.Sprintf("%s|%s|%s\n", path, name, bitmap)
+}
+
+// Декодирует строку формата <full_path>|<file_name>|<bitmap> в набор переменных
+func decodeRecord(line string) (path, name, bitmap string, err error) {
+    parts := strings.Split(line, "|")
+    if len(parts) != 3 {
+        return "", "", "", errors.New("invalid record format")
+    }
+    return parts[0], parts[1], parts[2], nil
 }
