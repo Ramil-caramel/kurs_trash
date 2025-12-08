@@ -1,5 +1,6 @@
 package downloader
-/*
+
+
 import (
 	"encoding/base64"
 	"encoding/binary"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"sync"
 	"crypto/sha1"
+	"time"
 	
 	"user/core/filehandler"
 	"user/netapi"
@@ -32,6 +34,9 @@ type Downloader struct {
 	piecesHave []bool
 	mu         sync.Mutex
 }
+
+
+
 
 // создание Downloader
 func NewDownloader(metaFilePath string, ph *filehandler.PublicHouse) (*Downloader, error) {
@@ -56,7 +61,7 @@ func NewDownloader(metaFilePath string, ph *filehandler.PublicHouse) (*Downloade
 	}
 
 	// --- пробуем прочитать битмап в PublicHouse ---
-	bitmap, exists := ph.GetRecord(meta.FileName)
+	bitmap, err := ph.GetBitmap(meta.FileName)
 
 	// ожидаемый битмап
 	emptyBitmap := make([]byte, len(meta.Pieces))
@@ -65,8 +70,9 @@ func NewDownloader(metaFilePath string, ph *filehandler.PublicHouse) (*Downloade
 	}
 
 	// Если записи нет — создаём нулевую
-	if !exists {
+	if err != nil {
 		bitmap = string(emptyBitmap)
+		ph.NewSeed(meta.FileName, 128*1024)
 		if err := ph.UpdateRecord(meta.FileName, bitmap); err != nil {
 			return nil, err
 		}
@@ -119,7 +125,7 @@ func NewDownloader(metaFilePath string, ph *filehandler.PublicHouse) (*Downloade
 
 // --- запрос списка пиров у трекера ---
 func GetPeers(fileName string, trackerURL string) ([]string, error) {
-	conn, err := net.Dial("tcp4", trackerURL+":3000")
+	conn, err := net.DialTimeout("tcp4", trackerURL+":4000", 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +244,7 @@ func (d *Downloader) UpdateBitmap() {
 
 // главная функция загрузки
 func (d *Downloader) DownloadAll() error {
-	peers, err := d.GetPeers()
+	peers, err := GetPeers(d.meta.FileName,d.meta.TrackerURL)
 	if err != nil {
 		return err
 	}
@@ -279,4 +285,3 @@ func equalBytes(a, b []byte) bool {
 	return true
 }
 
-*/

@@ -3,61 +3,113 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"os"
 
-	//"fmt"
+	"fmt"
+	"bufio"
+	"strings"
 
 	"io"
 	"net"
 	"user/netapi"
 
-	"crypto/md5"
-	"path/filepath"
+	//"path/filepath"
 
-	//"user/core/filehandler"
 	"user/core/filehandler"
-	"user/core/filehasher"
-	"user/core/meta"
-	//"user/seed"
-	//"user/downloader"
+	"user/uifunc"
 )
+
+
+/* тест на получение пиров
+	filePath := "/home/rama/Загрузки/avidreaders.ru__oblomov.txt"
+	fileName := filepath.Base(filePath)
+	a,_ := GetPeers(fileName, "192.168.1.2")
+	fmt.Println(a)
+*/
 
 func main() {
 
-	filePath := "/home/rama/Загрузки/avidreaders.ru__oblomov.txt"
-	fileName := filepath.Base(filePath)
-	pieceSize := 128 * 1024
-	trackerIP := "10.249.85.57"
+	//filePath := "/home/rama/Загрузки/avidreaders.ru__oblomov.txt"
+	//fileName := filepath.Base(filePath)
 
-	
+	// Инициализация PublicHouse (ph)
+    ph := &filehandler.PublicHouse{}
+	filehandler.EnsureFileExists()
+    
+/*
+	filehandler.CreateFile(fileName, 1673619)
+	for i := 0; i < 13; i++{
+		post,_ := DownloadPiece(fileName, "127.0.0.1", i) 
+		if post.Command =="ERR"{
+			fmt.Println("err")
+			continue
+		}
+		filehandler.PutPiece(fileName, post.Data,int64(i), 128*1024)
+		
+	}	
+*/
+    fmt.Println("--- Приложение BitTorrent Клиент/Сидер ---")
+
+    reader := bufio.NewReader(os.Stdin)
+
+    for {
+        fmt.Println("\nВыберите действие:")
+        fmt.Println("1. Создать мета-файл и начать сидировать (CreateMetaFile)")
+        fmt.Println("2. Запустить сид-сервер (Seed)")
+        fmt.Println("3. Скачать файл (Download)")
+        fmt.Println("4. Выход")
+        fmt.Print("Введите номер (1-4): ")
+
+        input, _ := reader.ReadString('\n')
+        input = strings.TrimSpace(input)
+
+        switch input {
+        case "1":
+            handleCreateMetaFile(reader, ph)
+        case "2":
+            handleSeed(ph)
+            // Seed обычно блокирует выполнение, если не вызывать его в отдельной горутине
+            // Если Seed содержит os.Exit(0), как в вашем примере, это завершит программу.
+            return 
+        case "3":
+            handleDownload(reader, ph)
+        case "4":
+            fmt.Println("👋 Выход из программы.")
+            return
+        default:
+            fmt.Println("❌ Неверный ввод. Пожалуйста, введите число от 1 до 4.")
+        }
+    }
+
+	//filePath := "/home/rama/Загрузки/avidreaders.ru__oblomov.txt"
+	//fileName := filepath.Base(filePath)
+	//pieceSize := 128 * 1024
+	//trackerIP := "192.168.1.2"
+	//filePath := "avidreaders.ru__oblomov.txt"
+	//ph := &filehandler.PublicHouse{}
+	//uifunc.CreateMetaFile(filePath, "192.168.1.2",ph)
+	//uifunc.Seed(ph)
+/*	
 	metaGen := &meta.MetaGenerator{Hasher: &filehasher.FileHasher{}}
 	err := metaGen.GenerateMyTorrent(filePath, pieceSize, trackerIP)
 	if err != nil {
 		return 
 	}
-	
+		*//*
+	pb := &filehandler.PublicHouse{}
 
 
-/*
+    err := pb.NewSeed(filePath, 128*1024)
+	if err != nil {
+        fmt.Printf("Failed to add seed: %v", err)
+		return
+    }
 
-	//ph := &filehandler.PublicHouse{}
-	//a,_ := GetPeers(fileName, "0.0.0.0")
-
-	pb :=&filehandler.PublicHouse{} 
-	pb.NewSeed(filePath, 128*1024)
-	seed.SeedServer() // у нас есть путь файл
 */
-	filehandler.CreateFile(fileName, 1673619)
-	for i := 0; i < 13; i++{
-		_,post := DownloadPiece(fileName, "127.0.0.1", i) // мы знаем только имя файла но не его путь
-		//fmt.Println(string(post.Data))
-		filehandler.PutPiece(fileName, post.Data,int64(i), 128*1024)
-		
-	}
-	
+
+	/*
 	data1, _ := os.ReadFile(filePath)
-	data2, _ := os.ReadFile(fileName)
+	data2, _ := os.ReadFile("123")
 	
 
 	if md5.Sum(data1) == md5.Sum(data2) {
@@ -65,15 +117,60 @@ func main() {
 	} else {
 		fmt.Println("❌ Файлы разные")
 	}
+	//finalBitmap, actualPath, err := pb.VerifyTorrentFile(fileName + ".mytorrent")
+	//fmt.Println(finalBitmap, actualPath ,err)
+	*/
 
 }	
 
-func DownloadPiece(fileName string, peer string, index int) (error,*netapi.PostPieceStruct) {
+// --- Обработчики Функций ---
+
+func handleCreateMetaFile(reader *bufio.Reader, ph *filehandler.PublicHouse) {
+    fmt.Print("Введите полный путь к файлу для сидирования (e.g., /path/to/file.txt): ")
+    filePath, _ := reader.ReadString('\n')
+    filePath = strings.TrimSpace(filePath)
+
+    fmt.Print("Введите IP/адрес трекера (e.g., http://tracker.com:8080): ")
+    trackerIP, _ := reader.ReadString('\n')
+    trackerIP = strings.TrimSpace(trackerIP)
+
+    if filePath != "" && trackerIP != "" {
+        uifunc.CreateMetaFile(filePath, trackerIP, ph)
+        fmt.Println("✅ Запрос на создание мета-файла и начало сидирования отправлен.")
+    } else {
+        fmt.Println("❌ Путь к файлу и IP трекера не могут быть пустыми.")
+    }
+}
+
+func handleSeed(ph *filehandler.PublicHouse) {
+    fmt.Println("🚀 Запуск сид-сервера...")
+    // Примечание: Функция Seed в вашем примере содержит os.Exit(0)
+    // внутри себя, что завершит всю программу после нажатия Enter.
+    uifunc.Seed(ph) 
+}
+
+func handleDownload(reader *bufio.Reader, ph *filehandler.PublicHouse) {
+    fmt.Print("Введите полный путь к мета-файлу (.meta) для скачивания (e.g., /path/to/file.meta): ")
+    metaFilePath, _ := reader.ReadString('\n')
+    metaFilePath = strings.TrimSpace(metaFilePath)
+
+    if metaFilePath != "" {
+        uifunc.Download(metaFilePath, ph)
+    } else {
+        fmt.Println("❌ Путь к мета-файлу не может быть пустым.")
+    }
+}
+
+
+
+
+
+func DownloadPiece(fileName string, peer string, index int) (*netapi.PostPieceStruct, error) {
 
 
 	conn, err := net.Dial("tcp4", peer+":3000")
 	if err != nil {
-		return err, nil
+		return  nil,err
 	}
 	defer conn.Close()
 
@@ -88,20 +185,20 @@ func DownloadPiece(fileName string, peer string, index int) (error,*netapi.PostP
 	// читаем POST ответ
 	respLenBuf := make([]byte, 4)
 	if _, err := io.ReadFull(conn, respLenBuf); err != nil {
-		return err,nil
+		return nil,err
 	}
 	respLen := binary.BigEndian.Uint32(respLenBuf)
 
 	respData := make([]byte, respLen)
 	if _, err := io.ReadFull(conn, respData); err != nil {
-		return err,nil
+		return nil,err
 	}
 
 	var postResp netapi.PostPieceStruct
 	if err := json.Unmarshal(respData, &postResp); err != nil {
-		return err,nil
+		return nil,err
 	}
-	return nil,&postResp
+	return &postResp, nil
 /*
 	// проверка хэша
 	h := sha1.Sum(postResp.Data)
@@ -126,110 +223,3 @@ func DownloadPiece(fileName string, peer string, index int) (error,*netapi.PostP
 	return nil
 */	
 }
-
-func equalBytes(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-
-func GetPeers(fileName string, trackerURL string) ([]string, error) {
-	conn, err := net.Dial("tcp4", trackerURL+":4000")
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	req := netapi.CreateGetPeersMessage(fileName)
-	data, _ := json.Marshal(req)
-
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
-	conn.Write(lenBuf)
-	conn.Write(data)
-
-	// читаем ответ
-	respLenBuf := make([]byte, 4)
-	if _, err := io.ReadFull(conn, respLenBuf); err != nil {
-		return nil, err
-	}
-	respLen := binary.BigEndian.Uint32(respLenBuf)
-
-	respData := make([]byte, respLen)
-	if _, err := io.ReadFull(conn, respData); err != nil {
-		return nil, err
-	}
-
-	var resp netapi.PeersResponseStruct
-	if err := json.Unmarshal(respData, &resp); err != nil {
-		return nil, err
-	}
-
-	return resp.Peers, nil
-}
-
-/*
-	// --- P2PClient структура ---
-type P2PClient struct {
-	ph        *filehandler.PublicHouse
-	metaPath  string
-	trackerIP string
-}
-
-// Генерация метафайла и уведомление трекера
-func (c *P2PClient) GenerateMeta(filePath string, pieceSize int) error {
-	metaGen := &meta.MetaGenerator{&filehasher.FileHasher{}}
-	err := metaGen.GenerateMyTorrent(filePath, pieceSize, c.trackerIP)
-	if err != nil {
-		return err
-	}
-
-	// уведомляем трекер о наличии файла
-	dl, err := downloader.NewDownloader(c.metaPath, c.ph)
-	if err != nil {
-		return err
-	}
-
-	_, err = dl.GetPeers() // фактически делает один запрос к трекеру
-	return err
-}
-
-// Запуск скачивания
-func (c *P2PClient) Download() error {
-	dl, err := downloader.NewDownloader(c.metaPath, c.ph)
-	if err != nil {
-		return err
-	}
-	return dl.DownloadAll()
-}
-
-// Запуск раздачи
-func (c *P2PClient) Seed() error {
-	metaData, err := os.ReadFile(c.metaPath)
-	if err != nil {
-		return err
-	}
-
-	var meta downloader.MetaFile
-	if err := json.Unmarshal(metaData, &meta); err != nil {
-		return err
-	}
-
-	// запускаем SeedServer в отдельной горутине
-	go seed.SeedServer([]string{meta.FileName})
-
-	// можно держать программу живой, пока раздаём
-	for {
-		time.Sleep(10 * time.Second)
-	}
-
-	return nil
-}
-	*/

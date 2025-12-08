@@ -6,6 +6,7 @@ package seed
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -19,10 +20,21 @@ import (
 const PieceSize int64 = 128 * 1024 // 65536, изменить при необходимости
 
 // Экземпляр PublicHouse (владеет mutex) для работы со списоком раздач
-var ph = &filehandler.PublicHouse{}
+var ph *filehandler.PublicHouse
+
+// Init позволяет передать готовый экземпляр PublicHouse из main
+func Init(publicHouse *filehandler.PublicHouse) {
+    ph = publicHouse
+}
 
 // SeedServer запускает TCP-сервер и принимает соединения.
 func SeedServer() {
+
+	if ph == nil {
+        logger.Error("CRITICAL: SeedServer started without PublicHouse initialization!")
+        return
+    }
+
 
 	logger.Info("start seed.SeedServer()")
 
@@ -52,7 +64,7 @@ func SeedServer() {
 // handleConn читает один запрос, вызывает диспетчер и отправляет ответ
 //1 запрос -> 1 ответ -> закрытие соединения
 func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
-
+	fmt.Println(conn.RemoteAddr())////////////////////////////////
 	logger.Infof("start seed.handleConn(%s)", conn.RemoteAddr().String())
 
 	defer conn.Close()

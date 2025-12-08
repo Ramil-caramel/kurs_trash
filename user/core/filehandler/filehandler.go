@@ -5,15 +5,18 @@ package filehandler
 // А также для взаимодействия с кастомными структурами данных
 
 import (
+	"bufio"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
-	"errors"
-    "sync"
-    "bufio"
-    "strings"
-    "fmt"
-    "path/filepath"
+	"path/filepath"
+	"strings"
+	"sync"
 
 	"user/logger"
 )
@@ -31,7 +34,7 @@ func CreateFile(name string, size int64) error {
 
 	file, err := os.Create(name)
 	if err != nil {
-		logger.Errorf("ilehandler.CreateFile(...) have err = %v", err)
+		logger.Errorf("filehandler.CreateFile(...) have err = %v", err)
 		return err
 	}
 
@@ -149,6 +152,28 @@ type PublicHouse struct{
     mu sync.RWMutex
 }
 
+func EnsureFileExists() error {
+    
+    logger.Info("start filehandlerEnsureFileExists()")
+    filePath := filepath.Join(".", PublicHouseFile) 
+
+    _, err := os.Stat(filePath)
+    if os.IsNotExist(err) {
+        
+        f, createErr := os.Create(filePath)
+        if createErr != nil {
+            logger.Errorf("filehandlerEnsureFileExists(...) have err = %v", err)
+            return createErr
+        }
+        f.Close()
+        logger.Info("create filehandlerEnsureFileExists()")
+    } else if err != nil {
+        logger.Errorf("filehandlerEnsureFileExists(...) have err = %v", err)
+        return err
+    }
+    
+    return nil
+}
 // функция в файл содеражащий всесь список наших раздач 
 // добавляет новую раздачу то есть набор data.txt 111111
 func (ph *PublicHouse) NewSeed(fullPath string, pieceSize int64) error {
@@ -244,7 +269,7 @@ func (ph *PublicHouse) GetBitmap(fileId string) (string, error) {
     }
 
     if err := scanner.Err(); err != nil {
-        logger.Errorf("ilehandler.PublicHouse.GetBitmap(...) have err = %v", err)
+        logger.Errorf("filehandler.PublicHouse.GetBitmap(...) have err = %v", err)
         return "", err
     }
 
@@ -317,7 +342,6 @@ func (ph *PublicHouse) HasPiece(fileId string, index int) (bool, error) {
 // устанавливает 1 на место скачанного куска 
 func (ph *PublicHouse) SetPiece(fileId string, index int) error {
     ph.mu.Lock()
-    defer ph.mu.Unlock()
 
     logger.Infof("start filehandler.PublicHouse.SetPiece(%v,%d)", fileId, index)
 
@@ -333,12 +357,15 @@ func (ph *PublicHouse) SetPiece(fileId string, index int) error {
 
     // Если уже 1 — нечего менять
     if bitmap[index] == '1' {
+        ph.mu.Unlock()
         return nil
     }
 
     // Изменяем требуемый бит
     newBitmap := []byte(bitmap)
     newBitmap[index] = '1'
+
+    ph.mu.Unlock()
 
     return ph.UpdateRecord(fileId, string(newBitmap))
 }
@@ -380,8 +407,8 @@ func (ph *PublicHouse) UpdateRecord(fileId, newBitmap string) error {
     }
 
     if !updated {
-        logger.Errorf("filehandler.PublicHouse.updateRecord(...) have err = %v", ErrUnFoundRecord)
-        return ErrUnFoundRecord
+        logger.Infof("filehandler.PublicHouse.updateRecord(...) have trouble = %v", ErrUnFoundRecord)
+        lines = append(lines, encodeRecord(fileId, filepath.Base(fileId), newBitmap))
     }
 
 
@@ -433,4 +460,115 @@ func decodeRecord(line string) (path, name, bitmap string, err error) {
         return "", "", "", errors.New("invalid record format")
     }
     return parts[0], parts[1], parts[2], nil
+}
+
+
+type TorrentMeta struct {
+    FileName   string    `json:"file_name"`
+    FileSize   int64     `json:"file_size"`
+    PieceSize  int       `json:"piece_size"`
+    Pieces     []string  `json:"pieces"` // base64(SHA1)
+    TrackerURL string    `json:"tracker_url,omitempty"`
+}
+
+
+// VerifyTorrentFile принимает путь к .mytorrent файлу, проверяет базу и целостность данных.
+// Возвращает актуальный BitMap (строку из 0 и 1), реальный путь к файлу и ошибку.
+func (ph *PublicHouse) VerifyTorrentFile(metaPath string) (string, string, error) {
+    logger.Infof("start verification for meta: %s", metaPath)
+
+    // 1. Читаем и парсим мета-файл
+    metaContent, err := os.ReadFile(metaPath)
+    if err != nil {
+        return "", "", fmt.Errorf("failed to read meta file: %w", err)
+    }
+
+    var meta TorrentMeta
+    if err := json.Unmarshal(metaContent, &meta); err != nil {
+        return "", "", fmt.Errorf("failed to parse meta json: %w", err)
+    }
+
+    // 2. Проверяем наличие в базе PublicHouse
+    // Пытаемся найти полный путь по имени файла
+    dbFullPath, err := ph.GetFullPathByName(meta.FileName)
+    recordExists := err == nil
+
+    // 3. Определяем фактическое расположение файла
+    var actualPath string
+
+    // Сценарий А: Файл есть по пути, указанному в базе (мы - создатель/сидер)
+    if recordExists {
+        if _, err := os.Stat(dbFullPath); err == nil {
+            actualPath = dbFullPath
+        }
+    }
+
+    // Сценарий Б: Файла нет по пути из базы (или записи нет), проверяем локальную папку (мы - личер)
+    if actualPath == "" {
+        localPath := meta.FileName // или filepath.Join(".", meta.FileName)
+        if _, err := os.Stat(localPath); err == nil {
+            actualPath = localPath
+        }
+    }
+
+    // Если файл нигде не найден
+    if actualPath == "" {
+        // Если файла нет физически, мы не можем проверить хеши. 
+        // Возвращаем пустую карту (все нули).
+        emptyBitmap := strings.Repeat("0", len(meta.Pieces))
+        return emptyBitmap, "", errors.New("data file not found physically")
+    }
+
+    // 4. Проверяем хеши кусков
+    file, err := os.Open(actualPath)
+    if err != nil {
+        return "", "", err
+    }
+    defer file.Close()
+
+    verifiedBitmap := make([]byte, len(meta.Pieces))
+    buf := make([]byte, meta.PieceSize)
+
+    for i, expectedHash := range meta.Pieces {
+        offset := int64(i) * int64(meta.PieceSize)
+        
+        // Читаем кусок
+        n, err := file.ReadAt(buf, offset)
+        if err != nil && err != io.EOF {
+            logger.Errorf("error reading piece %d: %v", i, err)
+            verifiedBitmap[i] = '0'
+            continue
+        }
+        
+        // Если прочитали 0 байт (конец файла раньше времени), то куска нет
+        if n == 0 {
+            verifiedBitmap[i] = '0'
+            continue
+        }
+
+        // Считаем SHA1
+        hash := sha1.Sum(buf[:n])
+        // Кодируем в Base64 (так как в структуре TorrentMeta указано base64)
+        calculatedHash := base64.StdEncoding.EncodeToString(hash[:])
+
+        if calculatedHash == expectedHash {
+            fmt.Println(calculatedHash,expectedHash)
+            verifiedBitmap[i] = '1'
+        } else {
+            verifiedBitmap[i] = '0'
+        }
+    }
+
+    finalBitmap := string(verifiedBitmap)
+
+    // Если запись была в базе, но битовая карта отличается — имеет смысл обновить базу
+    if recordExists {
+        oldBitmap, _ := ph.GetBitmap(meta.FileName)
+        if oldBitmap != finalBitmap {
+            logger.Infof("Bitmap mismatch for %s. Updating DB...", meta.FileName)
+            _ = ph.UpdateRecord(meta.FileName, finalBitmap)
+        }
+    }
+
+    return finalBitmap, actualPath, nil
 }
