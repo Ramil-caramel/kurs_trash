@@ -6,7 +6,6 @@ package seed
 import (
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -15,6 +14,8 @@ import (
 	"user/core/filehandler"
 	"user/netapi"
 )
+// переменная нашего сервера для возможности закрытия его из вне
+var Listener net.Listener
 
 // Параметр: размер куска
 const PieceSize int64 = 128 * 1024 // 65536, изменить при необходимости
@@ -37,13 +38,13 @@ func SeedServer() {
 
 
 	logger.Info("start seed.SeedServer()")
-
-	ln, err := net.Listen("tcp4", "0.0.0.0:3000")
+	var err error
+	Listener, err = net.Listen("tcp4", "0.0.0.0:3000")
 	if err != nil {
 		logger.Errorf("seed.SeedServer() have err = %v", err)
 		return
 	}
-	defer ln.Close()
+	defer Listener.Close()
 
 	// создаём диспетчер и регистрируем обработчики
 	dispatcher := netapi.NewDispatcher()
@@ -51,8 +52,14 @@ func SeedServer() {
 	dispatcher.Register("HSH", HandshakeHandler)
 
 	for {
-		conn, err := ln.Accept()
+		conn, err := Listener.Accept()
 		if err != nil {
+			opErr, ok := err.(*net.OpError)
+            // Если это ошибка операции, и операция "accept", и она закрыта/прервана
+            if ok && (opErr.Op == "accept" || opErr.Err.Error() == "use of closed network connection") {
+                logger.Info("Seed server listener closed. Exiting server loop.")
+                return 
+			}
 			// пропускаем соединения с ошибками
 			logger.Errorf("seed.SeedServer() have err = %v", err)
 			continue
@@ -64,7 +71,7 @@ func SeedServer() {
 // handleConn читает один запрос, вызывает диспетчер и отправляет ответ
 //1 запрос -> 1 ответ -> закрытие соединения
 func handleConn(conn net.Conn, dispatcher *netapi.Dispatcher) {
-	fmt.Println(conn.RemoteAddr())////////////////////////////////
+
 	logger.Infof("start seed.handleConn(%s)", conn.RemoteAddr().String())
 
 	defer conn.Close()

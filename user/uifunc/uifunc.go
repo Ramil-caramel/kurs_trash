@@ -9,9 +9,9 @@ import (
 	"user/logger"
 	"user/seed"
 
-	"bufio"
+
 	"fmt"
-	"os"
+
 )
 
 func CreateMetaFile(filePath string, trackerIP string, ph *filehandler.PublicHouse){
@@ -33,21 +33,19 @@ func CreateMetaFile(filePath string, trackerIP string, ph *filehandler.PublicHou
 }
 
 
-func Seed(ph *filehandler.PublicHouse) {
+func StartSeederBackground(ph *filehandler.PublicHouse) {
 	// Инициализируем сервер нашей базой
     seed.Init(ph)
 
     // Запускаем сервер
     go seed.SeedServer()
+}
 
-	fmt.Println("Server is running. Press ENTHER key to stop...")
-    
-    // Считываем один байт (любую клавишу)
-    reader := bufio.NewReader(os.Stdin)
-    reader.ReadByte()
-    
-    // Выходим из программы
-    os.Exit(0)
+func StopSeeder() {
+    if seed.Listener != nil { // Проверяем, что listener был создан
+        seed.Listener.Close() // Закрытие listener разблокирует ln.Accept() в горутине
+        fmt.Println("🛑 Сид-сервер остановлен.")
+    }
 }
 
 func Download(metaFilePath string, ph *filehandler.PublicHouse){
@@ -74,40 +72,3 @@ func Download(metaFilePath string, ph *filehandler.PublicHouse){
 	
 	fmt.Println("🎉 Download completed successfully!")
 }
-/*
-func GetPeers(fileName string, trackerURL string) ([]string, error) {
-	conn, err := net.DialTimeout("tcp4", trackerURL+":4000", 5*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-
-	req := netapi.CreateGetPeersMessage(fileName)
-	data, _ := json.Marshal(req)
-
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
-	conn.Write(lenBuf)
-	conn.Write(data)
-
-	// читаем ответ
-	respLenBuf := make([]byte, 4)
-	if _, err := io.ReadFull(conn, respLenBuf); err != nil {
-		return nil, err
-	}
-	respLen := binary.BigEndian.Uint32(respLenBuf)
-
-	respData := make([]byte, respLen)
-	if _, err := io.ReadFull(conn, respData); err != nil {
-		return nil, err
-	}
-
-	var resp netapi.PeersResponseStruct
-	if err := json.Unmarshal(respData, &resp); err != nil {
-		return nil, err
-	}
-
-	return resp.Peers, nil
-}
-	*/

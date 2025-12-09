@@ -131,6 +131,9 @@ func GetPeers(fileName string, trackerURL string) ([]string, error) {
 	}
 	defer conn.Close()
 
+	deadline := time.Now().Add(5 * time.Second) // Общий таймаут на всю операцию
+    conn.SetDeadline(deadline)
+
 	req := netapi.CreateGetPeersMessage(fileName)
 	data, _ := json.Marshal(req)
 
@@ -173,11 +176,15 @@ func (d *Downloader) NextPiece() int {
 
 // --- скачивание одного куска с пира ---
 func (d *Downloader) DownloadPiece(peer string, index int) error {
-	conn, err := net.Dial("tcp4", peer+":3000")
+
+	conn, err := net.DialTimeout("tcp4", peer+":3000", 3*time.Second)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+
+	deadline := time.Now().Add(5 * time.Second) // Общий таймаут на всю операцию
+    conn.SetDeadline(deadline)
 
 	req := netapi.CreateGetMessage(d.meta.FileName, index)
 	data, _ := json.Marshal(req)
@@ -243,7 +250,7 @@ func (d *Downloader) UpdateBitmap() {
 }
 
 // главная функция загрузки
-func (d *Downloader) DownloadAll() error {
+func (d *Downloader) DownloadAll1() error {
 	peers, err := GetPeers(d.meta.FileName,d.meta.TrackerURL)
 	if err != nil {
 		return err
@@ -283,5 +290,74 @@ func equalBytes(a, b []byte) bool {
 		}
 	}
 	return true
+}
+// Параллельная загрузка кусков
+func (d *Downloader) DownloadAll() error {
+    peers, err := GetPeers(d.meta.FileName, d.meta.TrackerURL)
+    if err != nil {
+        return err
+    }
+    if len(peers) == 0 {
+        return fmt.Errorf("no peers available")
+    }
+
+    // кол-во параллельных потоков = число пиров (или меньше)
+    workerCount := len(peers)
+    if workerCount > 10 {
+        workerCount = 10 // ограничим, чтобы не спамить
+    }
+
+    // создаём канал задач
+    pieceCh := make(chan int, len(d.piecesHave))
+    errCh := make(chan error, workerCount)
+    var wg sync.WaitGroup
+
+    // заполняем очередь заданиями
+    for i := range d.piecesHave {
+        if !d.piecesHave[i] {
+            pieceCh <- i
+        }
+    }
+    close(pieceCh)
+
+    // --- ВОРКЕРЫ ---
+    worker := func() {
+        defer wg.Done()
+
+        for index := range pieceCh {
+            success := false
+
+            for _, peer := range peers {
+                if err := d.DownloadPiece(peer, index); err == nil {
+                    success = true
+                    break
+                }
+            }
+
+            if !success {
+                errCh <- fmt.Errorf("failed to download piece %d from all peers", index)
+                return
+            }
+        }
+    }
+
+    // запуск воркеров
+    wg.Add(workerCount)
+    for i := 0; i < workerCount; i++ {
+        go worker()
+    }
+
+    // ждём завершения
+    wg.Wait()
+    close(errCh)
+
+    // если воркеры ошиблись — возвращаем первую ошибку
+    for e := range errCh {
+        if e != nil {
+            return e
+        }
+    }
+
+    return nil
 }
 
